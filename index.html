@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>スペースシューター</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <style>
+      body {
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  touch-action: manipulation;
+
+      margin: 0;
+      overflow: hidden;
+      background-color: #000;
+    }
+    canvas {
+      display: block;
+      margin: 0 auto;
+      border: 2px solid #0f0;
+      box-shadow: 0 0 20px #0f0;
+      touch-action: none;
+    }
+    .button {
+      position: absolute;
+      bottom: 20px;
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      background-color: rgba(0, 255, 0, 0.5);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 44px;
+      font-weight: bold;
+      user-select: none;
+      border: 2px solid #0f0;
+      box-shadow: 0 0 10px #0f0;
+    }
+    .left-button {
+      left: calc(50% - 200px);
+    }
+    .right-button {
+      right: calc(50% - 200px);
+    }
+    .hud {
+      position: absolute;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: #0f0;
+      font-size: 24px;
+      font-family: 'Press Start 2P', cursive;
+      text-shadow: 0 0 10px #0f0;
+    }
+  </style>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+</head>
+<body>
+  <canvas id="gameCanvas"></canvas>
+  <div class="button left-button">←</div>
+  <div class="button right-button">→</div>
+  <div class="hud">
+    <div>Lives: <span id="lives"></span></div>
+    <div>Score: <span id="score"></span></div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    let playerX = canvas.width / 2;
+    let playerY = canvas.height - 300;
+    const playerSpeed = 7;
+    const playerSize = 80;
+    let leftPressed = false;
+    let rightPressed = false;
+    let playerLives = 1;
+    let isShieldActive = false;
+    let shieldTimer = 0;
+    let weaponLevel = 1;
+    let weaponUpgradeTimer = 0;
+    let score = 0;
+    let specialWeaponActive = false;
+    let player2Active = false;
+    let player2X = canvas.width / 2 + 100;
+    let player2Y = canvas.height - 300;
+
+    const bullets = [];
+    const bulletSize = 15;
+    const bulletSpeed = 10;
+    const bulletInterval = 100;
+    const items = [];
+
+    const itemTypes = ['heart', 'shield', 'weaponUp1', 'weaponUp2'];
+const itemSettings = {
+  heart: { size: 40, speed: 1 },
+  shield: { size: 40, speed: 1 },
+  weaponUp1: { size: 40, speed: 1 },
+  weaponUp2: { size: 40, speed: 1 }
+};
+    const itemSpawnInterval = 18000;
+
+    const enemyTypes = ['normal', 'strong', 'boss'];
+    const enemies = [];
+    // 敵の設定
+const enemySettings = {
+  normal: {
+    size: 50, // サイズを大きくする
+    speed: 3,
+    health: 6, // 体力を倍にする
+    score: 10
+  },
+  strong: {
+    size: 70, // サイズを大きくする
+    speed: 2,
+    health: 15, // 体力を倍にする
+    score: 30
+  },
+  boss: {
+    size: 100, // サイズを大きくする
+    speed: 1.5,
+    health: 30, // 体力を倍にする
+    score: 100
+  }
+};
+
+// 敵のスポーン間隔を短くする
+const enemySpawnInterval = 4500;
+
+const enemySpawnChances = {
+      normal: 60,
+      strong: 30,
+      boss: 10
+    };
+
+    // ラスボスの設定
+const lastBoss = {
+  x: 0,
+  y: 100,
+  size: 200,
+  speed: 2,
+  health: 1000,
+  score: 8000,
+  beamInterval: 2000,
+  direction: 1
+};
+
+let lastBossActive = false;
+let lastBossBeamTimer = 0;
+
+// ラスボスの描画
+function drawLastBoss() {
+  if (!lastBossActive) return;
+
+  ctx.fillStyle = '#ff0';
+  ctx.beginPath();
+  ctx.moveTo(lastBoss.x + lastBoss.size / 2, lastBoss.y);
+  ctx.lineTo(lastBoss.x + lastBoss.size, lastBoss.y + lastBoss.size * 0.7);
+  ctx.lineTo(lastBoss.x + lastBoss.size / 2, lastBoss.y + lastBoss.size);
+  ctx.lineTo(lastBoss.x, lastBoss.y + lastBoss.size * 0.7);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = '#f00';
+  ctx.fillRect(lastBoss.x, lastBoss.y - 20, lastBoss.size * (lastBoss.health / 100), 10);
+}
+
+// ラスボスの更新
+function updateLastBoss() {
+  if (!lastBossActive) return;
+
+  lastBoss.x += lastBoss.speed * lastBoss.direction;
+
+  if (lastBoss.x < 0 || lastBoss.x > canvas.width - lastBoss.size) {
+    lastBoss.direction *= -1;
+  }
+
+  lastBossBeamTimer -= 16;
+  if (lastBossBeamTimer <= 0) {
+    shootLastBossBeam();
+    lastBossBeamTimer = lastBoss.beamInterval;
+  }
+}
+
+// ラスボスのビーム攻撃
+function shootLastBossBeam() {
+  const x = lastBoss.x + lastBoss.size / 2;
+  const y = lastBoss.y + lastBoss.size;
+  const speed = 5;
+  const size = 10;
+  enemies.push({ x, y, speed, size, health: 1, score: 0, type: 'beam' });
+}
+
+// ラスボスの出現
+function spawnLastBoss() {
+  lastBossActive = true;
+  lastBoss.x = (canvas.width - lastBoss.size) / 2;
+  lastBoss.health = 100;
+}
+
+
+    function getRandomEnemyType() {
+      const randomValue = Math.random() * 100;
+      let cumulativeChance = 0;
+
+      for (const type in enemySpawnChances) {
+        cumulativeChance += enemySpawnChances[type];
+        if (randomValue <= cumulativeChance) {
+          return type;
+        }
+      }
+
+      return 'normal';
+    }
+
+    function spawnEnemy() {
+      const type = getRandomEnemyType();
+      const x = Math.random() * (canvas.width - enemySettings[type].size);
+      const y = -enemySettings[type].size;
+      const speed = Math.random() * 2 + 1;
+      const angle = Math.random() * Math.PI * 2;
+      const enemy = {
+        type,
+        x,
+        y,
+        speed,
+        angle,
+        health: enemySettings[type].health
+      };
+      enemies.push(enemy);
+
+      // 次の敵の出現間隔をランダムに設定
+      const randomInterval = Math.random() * 3000 + 4000;
+      setTimeout(spawnEnemy, randomInterval);
+    }
+
+
+
+   // キャンバスのサイズを画面サイズに合わせて設定
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+
+    function spawnItem() {
+      const type = itemTypes[Math.floor(Math.random() * itemTypes.length)];
+      const x = Math.random() * (canvas.width - itemSettings[type].size);
+      const y = -itemSettings[type].size;
+      items.push({ type, x, y });
+
+      // 次のアイテムの出現間隔をランダムに設定
+      const randomInterval = Math.random() * 5000 + 19000; // 5000ミリ秒から10000ミリ秒の間でランダム
+      setTimeout(spawnItem, randomInterval);
+    }
+
+    function updatePlayer() {
+      if (leftPressed && playerX > 0) {
+        playerX -= playerSpeed;
+      }
+      if (rightPressed && playerX < canvas.width - playerSize) {
+        playerX += playerSpeed;
+      }
+      if (player2Active) {
+    if (leftPressed && player2X > 0) {
+      player2X -= playerSpeed;
+    }
+    if (rightPressed && player2X < canvas.width - playerSize) {
+      player2X += playerSpeed;
+    }
+  }
+
+    }
+
+    function updateBullets() {
+      bullets.forEach((bullet, index) => {
+        bullet.y -= bulletSpeed;
+        if (bullet.y < 0) {
+          bullets.splice(index, 1);
+        }
+      });
+    }
+
+    function updateItems() {
+      items.forEach((item, index) => {
+        const { speed } = itemSettings[item.type];
+        item.y += speed;
+        if (item.y > canvas.height) {
+          items.splice(index, 1);
+        }
+      });
+    }
+
+    function updateEnemies() {
+      enemies.forEach((enemy, index) => {
+        enemy.x += Math.cos(enemy.angle) * enemy.speed;
+        enemy.y += Math.sin(enemy.angle) * enemy.speed;
+
+        // 画面の端に到達した場合、反射する
+        if (enemy.x < 0 || enemy.x > canvas.width - enemySettings[enemy.type].size) {
+          enemy.angle = Math.PI - enemy.angle;
+        }
+        if (enemy.y > canvas.height) {
+          enemies.splice(index, 1);
+        }
+      });
+    }
+
+
+let touchCount = 0;
+let lastTouchTime = 0;
+
+
+
+canvas.addEventListener('click', (event) => {
+  event.preventDefault(); // デフォルトの動作をキャンセル
+  const currentTime = Date.now();
+  if (currentTime - lastTouchTime < 500) {
+    touchCount++;
+    if (touchCount === 2) {
+      touchCount = 0;
+    }
+  } else {
+    touchCount = 1;
+  }
+  lastTouchTime = currentTime;
+});
+
+    // スコアが一定値に達したらラスボスを出現させる
+function checkLastBossSpawn() {
+  if (!lastBossActive && score >= 5000) {
+    spawnLastBoss();
+  }
+}
+
+    function checkCollision() {
+  enemies.forEach((enemy, enemyIndex) => {
+    const { size, score: enemyScore } = enemySettings[enemy.type];
+
+    bullets.forEach((bullet, bulletIndex) => {
+      if (
+        bullet.x > enemy.x &&
+        bullet.x < enemy.x + size &&
+        bullet.y > enemy.y &&
+        bullet.y < enemy.y + size
+      ) {
+        bullets.splice(bulletIndex, 1);
+        enemy.health--;
+
+        if (enemy.health <= 0) {
+          explodeEnemy(enemy);
+          enemies.splice(enemyIndex, 1);
+          score += enemyScore;
+        }
+      }
+    });
+
+    if (!isShieldActive &&
+    enemy.y + size > playerY &&
+    enemy.y < playerY + playerSize &&
+    enemy.x + size > playerX &&
+    enemy.x < playerX + playerSize
+  ) {
+    enemies.splice(enemyIndex, 1);
+    playerLives--;
+    if (playerLives <= 0) {
+      gameOver();
+      return; // ゲームオーバー後は衝突判定を続行しない
+    
+      }
+    }
+  });
+
+  items.forEach((item, itemIndex) => {
+    const { size } = itemSettings[item.type];
+    if (
+      playerX < item.x + size &&
+      playerX + playerSize > item.x &&
+      playerY < item.y + size &&
+      playerY + playerSize > item.y
+    ) {
+      if (item.type === 'heart') {
+        playerLives++;
+      } else if (item.type === 'shield') {
+        isShieldActive = true;
+        shieldTimer = 20000;
+      } else if (item.type === 'weaponUp1') {
+        weaponLevel++;
+      } else if (item.type === 'weaponUp2') {
+        specialWeaponActive = true;
+      } 
+      items.splice(itemIndex, 1);
+    }
+  });
+
+      if (isShieldActive && shieldTimer <= 0) {
+        isShieldActive = false;
+        weaponLevel = 1;
+        specialWeaponActive = false;
+        player2Active = false;
+      }
+
+      if (lastBossActive) {
+    enemies.forEach((enemy, enemyIndex) => {
+      if (enemy.type === 'beam' &&
+        playerX < enemy.x + enemy.size &&
+        playerX + playerSize > enemy.x &&
+        playerY < enemy.y + enemy.size &&
+        playerY + playerSize > enemy.y
+      ) {
+        enemies.splice(enemyIndex, 1);
+        playerLives--;
+        if (playerLives <= 0) {
+          gameOver();
+        }
+      }
+    });
+  }
+}
+
+function gameOver() {
+  // ゲームループを停止
+  cancelAnimationFrame(animationId);
+
+  // キャンバスを非表示にする
+  canvas.style.display = 'none';
+
+  // ゲームオーバー画面の要素を作成
+  const gameOverScreen = document.createElement('div');
+  gameOverScreen.style.position = 'absolute';
+  gameOverScreen.style.top = '50%';
+  gameOverScreen.style.left = '50%';
+  gameOverScreen.style.transform = 'translate(-50%, -50%)';
+  gameOverScreen.style.textAlign = 'center';
+  gameOverScreen.style.fontFamily = '"Press Start 2P"';
+  gameOverScreen.style.color = '#fff';
+
+  const gameOverText = document.createElement('h1');
+  gameOverText.textContent = 'Game Over';
+  gameOverText.style.fontSize = '48px';
+  gameOverScreen.appendChild(gameOverText);
+
+  const scoreText = document.createElement('p');
+  scoreText.textContent = `Score: ${score}`;
+  scoreText.style.fontSize = '32px';
+  gameOverScreen.appendChild(scoreText);
+
+  const retryButton = document.createElement('button');
+  retryButton.textContent = 'Retry';
+  retryButton.style.fontSize = '24px';
+  retryButton.style.fontFamily = '"Press Start 2P"';
+  retryButton.style.backgroundColor = '#0f0';
+  retryButton.style.border = 'none';
+  retryButton.style.borderRadius = '5px';
+  retryButton.style.padding = '10px 20px';
+  retryButton.style.cursor = 'pointer';
+  retryButton.style.marginTop = '20px';
+  gameOverScreen.appendChild(retryButton);
+
+  document.body.appendChild(gameOverScreen);
+
+  retryButton.addEventListener('click', () => {
+    // リトライボタンがクリックされたときの処理
+    document.body.removeChild(gameOverScreen);
+    resetGame();
+  });
+}
+
+ let enemySpawnTimer;
+let itemSpawnTimer;
+
+function resetGame() {
+  playerX = canvas.width / 2;
+  playerY = canvas.height - 300;
+  playerLives = 1;
+  isShieldActive = false;
+  shieldTimer = 0;
+  weaponLevel = 1;
+  weaponUpgradeTimer = 0;
+  score = 0;
+  playerSpeed = 7;
+
+  enemies.length = 0;
+  bullets.length = 0;
+  items.length = 0;
+
+  weaponLevel = 1;
+  specialWeaponActive = false;
+  player2Active = false;
+
+  // リトライ時にタイマーをクリアする
+  clearTimeout(enemySpawnTimer);
+  clearTimeout(itemSpawnTimer);
+
+  // キャンバスを表示
+  canvas.style.display = 'block';
+
+  // ゲームループを再開
+  gameLoop();
+
+  // 敵とアイテムのスポーンを再開
+  enemySpawnTimer = setTimeout(spawnEnemy, 1000);
+  itemSpawnTimer = setTimeout(spawnItem, 5000);
+}
+    function updateTimers() {
+  if (isShieldActive) {
+    shieldTimer -= 16;
+    if (shieldTimer <= 0) {
+      isShieldActive = false;
+    }
+  }
+}
+
+  function drawPlayer() {
+  const playerIcon = '🛫';
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+  ctx.font = `${playerSize}px Arial`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(playerIcon, playerX + playerSize / 2, playerY + playerSize / 2);
+
+  if (isShieldActive) {
+    ctx.strokeStyle = '#00f';
+    ctx.lineWidth = 5;
+    ctx.strokeRect(playerX - 5, playerY - 5, playerSize + 10, playerSize + 10);
+  }
+
+  if (player2Active) {
+    const player2Icon = '🛫';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+    ctx.font = `${playerSize}px Arial`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(player2Icon, player2X + playerSize / 2, player2Y + playerSize / 2);
+  }
+
+  if (specialWeaponActive) {
+    const specialWeaponIcon = '🌩️';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+    ctx.font = `${playerSize}px Arial`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(specialWeaponIcon, playerX + playerSize / 2, playerY - playerSize / 2);
+  }
+}
+
+
+    function drawBullets() {
+      ctx.fillStyle = weaponLevel === 1 ? '#ff0' : weaponLevel === 2 ? '#ff8000' : '#f0f';
+      bullets.forEach(bullet => {
+        ctx.fillRect(bullet.x, bullet.y, bulletSize, bulletSize);
+      });
+    }
+
+    function drawItems() {
+  items.forEach(item => {
+    const { size } = itemSettings[item.type];
+
+    // アイテムのアイコン
+    const itemIcons = {
+  heart: '❤️',
+  shield: '🛡️',
+  weaponUp1: '🔫',
+  weaponUp2: '⚡'
+};
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+    ctx.font = `${size}px Arial`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(itemIcons[item.type], item.x + size / 2, item.y + size / 2);
+
+    // アイテムをピカピカ光らせる
+    const gradient = ctx.createRadialGradient(
+      item.x + size / 2, item.y + size / 2, size / 4,
+      item.x + size / 2, item.y + size / 2, size / 2
+    );
+    gradient.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
+    gradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.5)');
+    gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(item.x + size / 2, item.y + size / 2, size / 2, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
+    function drawEnemies() {
+      enemies.forEach(enemy => {
+        const { size, health } = enemySettings[enemy.type];
+
+        ctx.fillStyle = enemy.type === 'normal' ? '#f00' : enemy.type === 'strong' ? '#f60' : '#90f';
+        ctx.beginPath();
+        ctx.moveTo(enemy.x + size / 2, enemy.y);
+        ctx.lineTo(enemy.x + size, enemy.y + size * 0.7);
+        ctx.lineTo(enemy.x + size / 2, enemy.y + size);
+        ctx.lineTo(enemy.x, enemy.y + size * 0.7);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = '#0f0';
+        ctx.fillRect(enemy.x, enemy.y - 10, size * (enemy.health / health), 5);
+      });
+    }
+
+    function explodeEnemy(enemy) {
+      const { size } = enemySettings[enemy.type];
+
+      const gradient = ctx.createRadialGradient(
+        enemy.x + size / 2, enemy.y + size / 2, size / 4,
+        enemy.x + size / 2, enemy.y + size / 2, size
+      );
+      gradient.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
+      gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.arc(enemy.x + size / 2, enemy.y + size / 2, size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function drawHUD() {
+      ctx.fillStyle = '#0f0';
+      ctx.font = '24px "Press Start 2P"';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText(`Lives: ${playerLives}`, 10, 10);
+      ctx.fillText(`Score: ${score}`, 10, 40);
+    }
+    
+    let bgPosition = 0;
+    function drawBackground() {
+      bgPosition -= 1;
+      if (bgPosition <= -canvas.height) {
+        bgPosition = 0;
+      }
+      ctx.drawImage(canvas, 0, bgPosition);
+      ctx.drawImage(canvas, 0, bgPosition + canvas.height);
+    }
+
+    function draw() {
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      drawBackground();
+      drawPlayer();
+      drawBullets();
+      drawItems();
+      drawEnemies();
+      drawHUD();
+    }
+
+    function update() {
+      updatePlayer();
+      updateBullets();
+      updateItems();
+      updateEnemies();
+      checkCollision();
+      updateTimers();
+    }
+
+   // ゲームループ内でanimationIdを保存する変数を定義
+let animationId;
+
+function gameLoop() {
+  update();
+  draw();
+  updateItems(); // 追加
+  animationId = requestAnimationFrame(gameLoop);
+
+  if (lastBossActive) {
+    updateLastBoss();
+    drawLastBoss();
+  } else {
+    updateEnemies();
+    drawEnemies();
+  }
+}
+
+  function shoot() {
+  const x = playerX + playerSize / 2;
+  const y = playerY;
+  bullets.push({ x, y });
+
+  if (player2Active) {
+    const x2 = player2X + playerSize / 2;
+    const y2 = player2Y;
+    bullets.push({ x: x2, y: y2 });
+  }
+
+  if (weaponLevel >= 2) {
+    bullets.push({ x: x - 10, y });
+    bullets.push({ x: x + 10, y });
+  }
+
+  if (weaponLevel >= 3) {
+    bullets.push({ x: x - 20, y });
+    bullets.push({ x: x + 20, y });
+  }
+
+  if (weaponLevel >= 4) {
+    bullets.push({ x: x - 30, y });
+    bullets.push({ x: x + 30, y });
+  }
+
+
+  if (specialWeaponActive) {
+    player2X = playerX + 100; // プレイヤー2のX座標をプレイヤー1から100ピクセル離す
+    player2Y = playerY; // プレイヤー2のY座標はプレイヤー1と同じにする
+    player2Active = true;
+  }
+}
+
+    document.addEventListener('keydown', event => {
+      if (event.key === 'ArrowLeft') {
+        leftPressed = true;
+      } else if (event.key === 'ArrowRight') {
+        rightPressed = true;
+      }
+    });
+
+    document.addEventListener('keyup', event => {
+      if (event.key === 'ArrowLeft') {
+        leftPressed = false;
+      } else if (event.key === 'ArrowRight') {
+        rightPressed = false;
+      }
+    });
+
+    document.querySelector('.left-button').addEventListener('touchstart', () => {
+      leftPressed = true;
+    });
+    document.querySelector('.left-button').addEventListener('touchend', () => {
+      leftPressed = false;
+    });
+
+    document.querySelector('.right-button').addEventListener('touchstart', () => {
+      rightPressed = true;
+    });
+    document.querySelector('.right-button').addEventListener('touchend', () => {
+      rightPressed = false;
+    });
+
+    setInterval(shoot, bulletInterval);
+    setInterval(spawnEnemy, enemySpawnInterval);
+    setInterval(spawnItem, itemSpawnInterval);
+    gameLoop();
+  </script>
+</body>
+</html>
