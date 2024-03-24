@@ -57,7 +57,8 @@
 
 ```function doGet() {
   return HtmlService.createHtmlOutputFromFile('index');
-}```
+}
+```
 
 ５．プロジェクトを保存し、GASの「公開」メニューから「Webアプリケーションとして導入」を選択します。
 ６．適切なアクセス権限を設定し、プロジェクトを公開します。
